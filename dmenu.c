@@ -15,6 +15,8 @@
 #endif
 #include <X11/Xft/Xft.h>
 
+#include <glib.h>
+
 #include "drw.h"
 #include "util.h"
 

@@ -1,4 +1,5 @@
 /* See LICENSE file for copyright and license details. */
+#include <pango/pango.h>
 
 typedef struct {
 	Cursor cursor;
@@ -55,3 +56,6 @@ int drw_text(Drw *drw, int x, int y, unsigned int w, unsigned int h, unsigned in
 
 /* Map functions */
 void drw_map(Drw *drw, Window win, int x, int y, unsigned int w, unsigned int h);
+
+void x_blit(PangoContext *pgo_context, PangoFontMap *pfo_fontmap, XftColor *xftcol, XftFont *xfont, XftDraw *xftdraw, const char *TextStr, int x, int y);
+void pango_get_extents(PangoContext *pgo_context, XftFont *xfont, const char *TextStr, unsigned int *width);
