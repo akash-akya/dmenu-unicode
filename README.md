@@ -21,6 +21,10 @@ Afterwards enter the following command to build and install dmenu
     make clean install
 
 
+Todo
+----
++ Multi language input
+
 Running dmenu
 -------------
 See the man page for details.
