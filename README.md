@@ -1,12 +1,14 @@
-dmenu - dynamic menu
-====================
+# dmenu - dynamic menu with ligature support (Glyphs)
 dmenu is an efficient dynamic menu for X.
 
 
 Requirements
 ------------
-In order to build dmenu you need the Xlib header files.
-
+In order to build dmenu you need following libraries
++ Xlib
++ Glib-2.0
++ Pango-1.0
++ Pangoxft-1.0
 
 Installation
 ------------
