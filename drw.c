@@ -196,15 +196,44 @@ drw_rect(Drw *drw, int x, int y, unsigned int w, unsigned int h, int filled, int
         XDrawRectangle(drw->dpy, drw->drawable, drw->gc, x, y, w - 1, h - 1);
 }
 
+unsigned int
+get_text_width (PangoLayout *layout)
+{
+    unsigned int width;
+    pango_layout_get_size (layout, (int *)&width, NULL);
+    /* Divide by pango scale to get dimensions in pixels. */
+    return width/PANGO_SCALE;
+}
+
+PangoLayout *
+get_pango_layout(PangoContext *pgo_context, XftFont *xfont, const char *TextStr)
+{
+    PangoFontDescription *fontdes;
+    PangoLayout *layout;
+    
+    if ((fontdes = pango_fc_font_description_from_pattern (xfont->pattern, TRUE)) == 0)
+        {
+            fprintf(stderr, "Failed to load font, exiting.");
+            exit(-1);
+        }
+
+    pango_context_set_font_description(pgo_context, fontdes);
+
+    layout = pango_layout_new (pgo_context);
+    pango_layout_set_text (layout, TextStr, -1);
+    pango_layout_set_font_description (layout, fontdes);
+    return layout;
+}
+
 int
 drw_text(Drw *drw, int x, int y, unsigned int w, unsigned int h, unsigned int lpad, const char *text, int invert)
 {
-    int ty;
-    unsigned int ew;
+    unsigned int ew = 0;
     XftDraw *d = NULL;
     Fnt *usedfont;
     PangoContext *pgo_context;
     PangoFontMap *pgo_fontmap;
+    PangoLayout *pgo_layout;
     int utf8strlen, render = x || y || w || h;
 
     if (!drw || (render && !drw->scheme) || !text || !drw->fonts)
@@ -228,16 +257,17 @@ drw_text(Drw *drw, int x, int y, unsigned int w, unsigned int h, unsigned int lp
     if (utf8strlen) {
         pgo_fontmap = pango_xft_get_font_map (drw->dpy, drw->screen);
         pgo_context = pango_font_map_create_context (pgo_fontmap);
+        
+        pgo_layout = get_pango_layout(pgo_context, usedfont->xfont, text);
+        if (pgo_layout) {            
+            ew = get_text_width(pgo_layout);
 
-        pango_get_extents(pgo_context, usedfont->xfont, text, &ew);
-
-        if (render) {
-            ty = y + (h - usedfont->h) / 2 + usedfont->xfont->ascent;
-            x_blit(pgo_context, pgo_fontmap, &drw->scheme[invert ? ColBg : ColFg], usedfont->xfont, d, text, x, ty);
-
+            if (render)
+                pango_xft_render_layout (d, &drw->scheme[invert ? ColBg : ColFg], pgo_layout, x*PANGO_SCALE, y*PANGO_SCALE);
         }
         x += ew;
         w -= ew;
+        if (pgo_layout) g_object_unref (pgo_layout);
         if (pgo_context) g_object_unref(pgo_context);
     }
 
@@ -279,108 +309,6 @@ drw_font_getexts(Fnt *font, const char *text, unsigned int len, unsigned int *w,
         *w = ext.xOff;
     if (h)
         *h = font->h;
-}
-
-unsigned int
-get_text_width (PangoLayout *layout)
-{
-    unsigned int width;
-    pango_layout_get_size (layout, (int *)&width, NULL);
-    /* Divide by pango scale to get dimensions in pixels. */
-    return width/PANGO_SCALE;
-}
-
-void
-pango_get_extents(PangoContext *pgo_context, XftFont *xfont, const char *TextStr, unsigned int *width)
-{
-    PangoFontDescription *fontdes;
-    PangoLayout          *layout;
-
-    if ((fontdes = pango_fc_font_description_from_pattern (xfont->pattern, TRUE)) == 0)
-        {
-            fprintf(stderr, "Failed to load font, exiting.");
-            exit(-1);
-        }
-
-    pango_context_set_font_description(pgo_context, fontdes);
-
-    layout = pango_layout_new (pgo_context);
-    pango_layout_set_text (layout, TextStr, -1);
-    pango_layout_set_font_description (layout, fontdes);
-
-    *width = get_text_width (layout);
-    g_object_unref (layout);
-}
-
-void
-x_blit(PangoContext *pgo_context, PangoFontMap *pgo_fontmap, XftColor *xftcol, XftFont *xfont, XftDraw *xftdraw, const char *TextStr, int x, int y)
-{
-    PangoFontDescription *fontdes;
-    PangoFont            *font;
-
-    if ((fontdes = pango_fc_font_description_from_pattern (xfont->pattern, TRUE)) == 0)
-        {
-            fprintf(stderr, "Failed to load font, exiting.");
-            exit(-1);
-        }
-
-    pango_context_set_font_description(pgo_context, fontdes);
-
-    if ((font = pango_font_map_load_font (pgo_fontmap,
-                                          pgo_context, fontdes)) == NULL)
-        {
-            fprintf(stderr, "Failed to load font, exiting.");
-            exit(-1);
-        }
-
-    char *str = NULL;
-    GList *items_head = NULL, *items = NULL;
-    PangoAttrList *attr_list = NULL;
-
-
-    attr_list = pango_attr_list_new (); /* no markup - empty attributes */
-    str       = strdup(TextStr);
-
-    /* analyse string, breaking up into items */
-    items_head = items = pango_itemize (pgo_context, str,
-                                        0, strlen(TextStr),
-                                        attr_list, NULL);
-
-    while (items)
-        {
-            PangoItem        *this   = (PangoItem *)items->data;
-            PangoGlyphString *glyphs = pango_glyph_string_new ();
-            PangoRectangle    rect;
-
-            /* shape current item into run of glyphs */
-            pango_shape  (&str[this->offset], this->length,
-                          &this->analysis, glyphs);
-
-
-            /* render the glyphs */
-            pango_xft_render (xftdraw,
-                              xftcol,
-                              this->analysis.font,
-                              glyphs,
-                              x, y);
-
-            /* calculate rendered area */
-            pango_glyph_string_extents (glyphs,
-                                        this->analysis.font,
-                                        &rect,
-                                        NULL);
-
-            x += ( rect.x + rect.width ) / PANGO_SCALE;
-
-            pango_item_free (this);
-            pango_glyph_string_free (glyphs);
-
-            items = items->next;
-        }
-
-    if (attr_list)  pango_attr_list_unref (attr_list);
-    if (str)        free(str);
-    if (items_head) g_list_free (items_head);
 }
 
 Cur *
