@@ -10,6 +10,13 @@
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <X11/Xutil.h>
+#include <X11/Xmd.h>
+#include <X11/extensions/shape.h>
+#include <X11/cursorfont.h>
+#include <X11/xpm.h>
+#include <xcb/xcb.h>
+#include <xcb/xcb_icccm.h>
+
 #ifdef XINERAMA
 #include <X11/extensions/Xinerama.h>
 #endif
@@ -22,7 +29,7 @@
 
 /* macros */
 #define INTERSECT(x,y,w,h,r)  (MAX(0, MIN((x)+(w),(r).x_org+(r).width)  - MAX((x),(r).x_org)) \
-                             * MAX(0, MIN((y)+(h),(r).y_org+(r).height) - MAX((y),(r).y_org)))
+                               * MAX(0, MIN((y)+(h),(r).y_org+(r).height) - MAX((y),(r).y_org)))
 #define LENGTH(X)             (sizeof X / sizeof X[0])
 #define TEXTW(X)              (drw_fontset_getwidth(drw, (X)) + lrpad)
 
@@ -127,6 +134,16 @@ drawitem(struct item *item, int x, int y, int w)
 	return drw_text(drw, x, y, w, bh, lrpad / 2, item->text, 0);
 }
 
+void set_preedit_popup_position(int x, int y)
+{    
+    XPoint spot = {x, y};
+    XVaNestedList list;
+    
+    list = XVaCreateNestedList(0, XNSpotLocation, &spot, NULL);
+    XSetICValues(xic, XNPreeditAttributes, list, NULL);
+    XFree(list);
+}
+
 static void
 drawmenu(void)
 {
@@ -146,7 +163,11 @@ drawmenu(void)
 	drw_setscheme(drw, scheme[SchemeNorm]);
 	drw_text(drw, x, 0, w, bh, lrpad / 2, text, 0);
 
-	drw_font_getexts(drw->fonts, text, cursor, &curpos, NULL);
+	/* drw_font_getexts(drw->fonts, text, cursor, &curpos, NULL); */
+    curpos = drw_fontset_getwidth(drw, text) + 3;
+
+    set_preedit_popup_position(drw_fontset_getwidth(drw, text)+im_hint_x_offset, im_hint_y_offset);
+    
 	if ((curpos += lrpad / 2 - 1) < w) {
 		drw_setscheme(drw, scheme[SchemeNorm]);
 		drw_rect(drw, x + curpos, 2, 2, bh - 4, 1, 0);
@@ -297,7 +318,9 @@ keypress(XKeyEvent *ev)
 	KeySym ksym = NoSymbol;
 	Status status;
 
-	len = XmbLookupString(xic, ev, buf, sizeof buf, &ksym, &status);
+	/* len = XmbLookupString(xic, ev, buf, sizeof buf, &ksym, &status); */
+    len = Xutf8LookupString(xic, ev, buf, sizeof buf, &ksym, &status);
+ 
 	if (status == XBufferOverflow)
 		return;
 	if (ev->state & ControlMask)
@@ -511,8 +534,9 @@ run(void)
 	XEvent ev;
 
 	while (!XNextEvent(dpy, &ev)) {
-		if (XFilterEvent(&ev, win))
-			continue;
+        if(XFilterEvent(&ev, None) == True)
+            continue;
+
 		switch(ev.type) {
 		case Expose:
 			if (ev.xexpose.count == 0)
@@ -536,6 +560,91 @@ run(void)
 			break;
 		}
 	}
+}
+
+/* MWM decorations values */
+#define MWM_DECOR_NONE          0
+#define MWM_DECOR_ALL           (1L << 0)
+#define MWM_DECOR_BORDER        (1L << 1)
+#define MWM_DECOR_RESIZEH       (1L << 2)
+#define MWM_DECOR_TITLE         (1L << 3)
+#define MWM_DECOR_MENU          (1L << 4)
+#define MWM_DECOR_MINIMIZE      (1L << 5)
+#define MWM_DECOR_MAXIMIZE      (1L << 6)
+
+/* KDE decoration values */
+enum {
+    KDE_noDecoration = 0,
+    KDE_normalDecoration = 1,
+    KDE_tinyDecoration = 2,
+    KDE_noFocus = 256,
+    KDE_standaloneMenuBar = 512,
+    KDE_desktopIcon = 1024 ,
+    KDE_staysOnTop = 2048
+};
+
+void
+wm_nodecorations(Window window) {
+    Atom WM_HINTS;
+
+    WM_HINTS = XInternAtom(dpy, "_MOTIF_WM_HINTS", True);
+    if ( WM_HINTS != None ) {
+#define MWM_HINTS_DECORATIONS   (1L << 1)
+        struct {
+            unsigned long flags;
+            unsigned long functions;
+            unsigned long decorations;
+            long input_mode;
+            unsigned long status;
+        } MWMHints = { MWM_HINTS_DECORATIONS, 0,
+                       MWM_DECOR_NONE, 0, 0 };
+        XChangeProperty(dpy, window, WM_HINTS, WM_HINTS, 32,
+                        PropModeReplace, (unsigned char *)&MWMHints,
+                        sizeof(MWMHints)/4);
+    }
+    WM_HINTS = XInternAtom(dpy, "KWM_WIN_DECORATION", True);
+    if ( WM_HINTS != None ) {
+        long KWMHints = KDE_tinyDecoration;
+        XChangeProperty(dpy, window, WM_HINTS, WM_HINTS, 32,
+                        PropModeReplace, (unsigned char *)&KWMHints,
+                        sizeof(KWMHints)/4);
+    }
+
+    WM_HINTS = XInternAtom(dpy, "_WIN_HINTS", True);
+    if ( WM_HINTS != None ) {
+        long GNOMEHints = 0;
+        XChangeProperty(dpy, window, WM_HINTS, WM_HINTS, 32,
+                        PropModeReplace, (unsigned char *)&GNOMEHints,
+                        sizeof(GNOMEHints)/4);
+    }
+    WM_HINTS = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE", True);
+    if ( WM_HINTS != None ) {
+        Atom NET_WMHints[2];
+        NET_WMHints[0] = XInternAtom(dpy,
+                                     "_KDE_NET_WM_WINDOW_TYPE_OVERRIDE", True);
+        NET_WMHints[1] = XInternAtom(dpy, "_NET_WM_WINDOW_TYPE_NORMAL", True);
+        XChangeProperty(dpy, window,
+                        WM_HINTS, XA_ATOM, 32, PropModeReplace,
+                        (unsigned char *)&NET_WMHints, 2);
+    }
+
+    WM_HINTS = XInternAtom(dpy, "_NET_MOVERESIZE_WINDOW", True);
+    if ( WM_HINTS != None ) {
+        struct {
+            unsigned long flags;
+            unsigned long x;
+            unsigned long y;
+            unsigned long w;
+            unsigned long h;
+        } MWMHints = { 4, 2, 2, 100, 100};
+        XChangeProperty(dpy, window, WM_HINTS, WM_HINTS, 32,
+                        PropModeReplace, (unsigned char *)&MWMHints,
+                        5);
+    }
+    
+    XSetTransientForHint(dpy, window, root);
+    XUnmapWindow(dpy, window);
+    XMapWindow(dpy, window);
 }
 
 static void
@@ -591,37 +700,65 @@ setup(void)
 					break;
 
 		x = info[i].x_org;
-		y = info[i].y_org + (topbar ? 0 : info[i].height - mh);
+		y = info[i].y_org;
 		mw = info[i].width;
 		XFree(info);
 	} else
 #endif
-	{
-		if (!XGetWindowAttributes(dpy, parentwin, &wa))
-			die("could not get embedding window attributes: 0x%lx",
-			    parentwin);
-		x = 0;
-		y = topbar ? 0 : wa.height - mh;
-		mw = wa.width;
-	}
+        {
+            if (!XGetWindowAttributes(dpy, parentwin, &wa))
+                die("could not get embedding window attributes: 0x%lx",
+                    parentwin);
+            x = 0;
+            y = 0;
+            mw = wa.width;
+        }
+    
+    mw /= 4;
 	promptw = (prompt && *prompt) ? TEXTW(prompt) - lrpad / 4 : 0;
 	inputw = MIN(inputw, mw/3);
 	match();
 
 	/* create menu window */
-	swa.override_redirect = True;
-	swa.background_pixel = scheme[SchemeNorm][ColBg].pixel;
+ 	swa.background_pixel = scheme[SchemeNorm][ColBg].pixel;
 	swa.event_mask = ExposureMask | KeyPressMask | VisibilityChangeMask;
 	win = XCreateWindow(dpy, parentwin, x, y, mw, mh, 0,
-	                    CopyFromParent, CopyFromParent, CopyFromParent,
-	                    CWOverrideRedirect | CWBackPixel | CWEventMask, &swa);
+                        CopyFromParent, CopyFromParent, CopyFromParent,
+                        CWBackPixel | CWEventMask, &swa);
 
+    wm_nodecorations(win);
+    XSetLocaleModifiers("");
+    
 	/* open input methods */
-	xim = XOpenIM(dpy, NULL, NULL, NULL);
-	xic = XCreateIC(xim, XNInputStyle, XIMPreeditNothing | XIMStatusNothing,
-	                XNClientWindow, win, XNFocusWindow, win, NULL);
+    xim = XOpenIM(dpy, 0, 0, 0);
+    if(!xim){
+        // fallback to internal input method
+        XSetLocaleModifiers("@im=none");
+        xim = XOpenIM(dpy, 0, 0, 0);
+    }
+	 
+    XVaNestedList preedit = NULL;
+    XFontSet fontSet = NULL;
+    char **list;
+    int count;
+    XPoint spot = {0,0};
+    
+    fontSet = XCreateFontSet(dpy, "*", &list, &count, NULL);
+    preedit = XVaCreateNestedList(0, XNFontSet, fontSet, XNSpotLocation, &spot,
+                                  NULL);
 
-	XMapRaised(dpy, win);
+    xic = XCreateIC(xim,
+                    XNInputStyle, XIMPreeditPosition | XIMStatusNothing,
+                    XNPreeditAttributes, preedit,
+                    XNClientWindow, win,
+                    XNFocusWindow, win,
+                    NULL);
+
+    long im_event_mask;
+    XGetICValues(xic, XNFilterEvents, &im_event_mask, NULL);
+    XSelectInput(dpy, win, ExposureMask | KeyPressMask | StructureNotifyMask | im_event_mask);
+
+	XSetICFocus(xic);
 	if (embed) {
 		XSelectInput(dpy, parentwin, FocusChangeMask);
 		if (XQueryTree(dpy, parentwin, &dw, &w, &dws, &du) && dws) {
@@ -654,18 +791,20 @@ main(int argc, char *argv[])
 		if (!strcmp(argv[i], "-v")) {      /* prints version information */
 			puts("dmenu-"VERSION);
 			exit(0);
-		} else if (!strcmp(argv[i], "-b")) /* appears at the bottom of the screen */
-			topbar = 0;
-		else if (!strcmp(argv[i], "-f"))   /* grabs keyboard before reading stdin */
+		} else if (!strcmp(argv[i], "-f"))   /* grabs keyboard before reading stdin */
 			fast = 1;
 		else if (!strcmp(argv[i], "-i")) { /* case-insensitive item matching */
 			fstrncmp = strncasecmp;
 			fstrstr = cistrstr;
 		} else if (i + 1 == argc)
 			usage();
-		/* these options take one argument */
+    /* these options take one argument */
 		else if (!strcmp(argv[i], "-l"))   /* number of lines in vertical list */
 			lines = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "-y"))   /*  */
+			im_hint_y_offset = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "-x"))   /*  */
+			im_hint_x_offset = atoi(argv[++i]);
 		else if (!strcmp(argv[i], "-m"))
 			mon = atoi(argv[++i]);
 		else if (!strcmp(argv[i], "-p"))   /* adds prompt to left of input field */
@@ -685,7 +824,7 @@ main(int argc, char *argv[])
 		else
 			usage();
 
-	if (!setlocale(LC_CTYPE, "") || !XSupportsLocale())
+	if (!setlocale(LC_ALL, "") || !XSupportsLocale())
 		fputs("warning: no locale support\n", stderr);
 	if (!(dpy = XOpenDisplay(NULL)))
 		die("cannot open display");
