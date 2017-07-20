@@ -1,6 +1,7 @@
 # dmenu - dynamic menu with multilanguage support
 dmenu is an efficient dynamic menu for X.
-This fort tries to enhance its usability with addition of multilanguage support 
+
+This fork tries to enhance its usability with addition of multilanguage support 
 
 Requirements
 ------------
