@@ -1,6 +1,6 @@
-# dmenu - dynamic menu with ligature support (Glyphs)
+# dmenu - dynamic menu with multilanguage support
 dmenu is an efficient dynamic menu for X.
-
+This fort tries to enhance its usability with addition of multilanguage support 
 
 Requirements
 ------------
@@ -23,7 +23,7 @@ Afterwards enter the following command to build and install dmenu
 
 Todo
 ----
-+ Multi language input
++ ~Multi language input~
 
 Running dmenu
 -------------
